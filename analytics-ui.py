@@ -9,8 +9,6 @@ def render():
     
     API_BASE = "https://hrm-streamlit-ui-6.onrender.com"
     
-    st.set_page_config(page_title="Human Rights Violations Dashboard", layout="wide")
-    st.title("Human Rights Violations Dashboard")
     
     # --- Sidebar Filters ---
     st.sidebar.header("Filters")
