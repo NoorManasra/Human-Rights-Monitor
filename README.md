@@ -46,6 +46,6 @@ A web-based Monitoring and Information System (MIS) for tracking and analyzing h
 👩‍💻 Developed By
 
 Nour Manasrah
-Randa Salman
+Randa Samhan
 Malak Khalaf
 
