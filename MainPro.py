@@ -42,7 +42,7 @@ elif selected_tab == "Victims/Witnesses":
 elif selected_tab == "Analytics":
     st.title("📈 Data Analysis & Visualization")
     try:
-        from analytics_ui import render as render_analytics
+        from analytics-ui import render as render_analytics
         render_analytics()
     except ImportError:
         st.warning("Analytics module not found or render() missing.")
