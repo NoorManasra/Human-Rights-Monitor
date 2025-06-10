@@ -1,5 +1,5 @@
 import streamlit as st
-import analytics_ui
+
 
 # Set wide layout and page title
 st.set_page_config(page_title="Human Rights MIS Dashboard", layout="wide")
