@@ -28,17 +28,20 @@ A web-based Monitoring and Information System (MIS) for tracking and analyzing h
    cd Human-Rights-Monitor
    
 2.Install dependencies:
+
    pip install -r requirements.txt
 
 3.Run the dashboard:
+
    streamlit run MainPro.py
 
 🛠️ Built With
-Python3
-Streamlit
-Plotly
-FPDF
-Pandas
+
+    Python3
+    Streamlit
+    Plotly
+    FPDF
+    Pandas
 
 👩‍💻 Developed By
 
