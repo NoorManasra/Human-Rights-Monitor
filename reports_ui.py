@@ -1,7 +1,7 @@
 import streamlit as st
 import requests
 
-API_URL = "https://human-rights-monitor.onrender.com"  # Replace with your actual FastAPI Render URL
+API_URL = "https://report-indicint.onrender.com"  
 
 st.set_page_config(page_title="Human Rights Violation Reports", layout="wide")
 
