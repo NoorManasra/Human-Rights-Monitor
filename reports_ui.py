@@ -5,7 +5,7 @@ def render():
     import streamlit as st
     import requests
     
-    API_URL = "https://human-rights-monitor.onrender.com"  # ضع رابط الـAPI الخاص بك هنا
+    API_URL = "https://reports-xdzm.onrender.com"  # ضع رابط الـAPI الخاص بك هنا
     
     
     menu = st.sidebar.selectbox("Choose Action", ["📨 Submit Report", "📋 View Reports", "✅ Update Status", "📊 Reports Analytics"])
