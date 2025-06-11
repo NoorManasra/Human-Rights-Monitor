@@ -26,7 +26,7 @@ if selected_tab == "Case Management":
 elif selected_tab == "Incident Reporting":
     st.title("📮 Incident Reporting")
     try:
-        from incident_reporting import render as render_incident_reporting
+        from reports_ui import render as render_incident_reporting
         render_incident_reporting()
     except ImportError:
         st.warning("Incident Reporting module not found or render() missing.")
