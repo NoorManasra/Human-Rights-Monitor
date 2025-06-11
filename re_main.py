@@ -1,17 +1,18 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException, Path
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from typing import List, Optional
+from pydantic import BaseModel, Field
+from typing import List, Optional, Union
 from uuid import uuid4
 from pymongo import MongoClient
 from bson import ObjectId
 import os
 import shutil
+from datetime import datetime
 
 app = FastAPI()
 
-# Enable connection from Streamlit (CORS)
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,89 +20,201 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Connect to MongoDB Atlas
+# MongoDB connection
 client = MongoClient("mongodb+srv://admin:nqdoEbgeEWkp9dFI@hrm-cluster.3yb5td1.mongodb.net/?retryWrites=true&w=majority&appName=HRM-Cluster")
 db = client.human_rights_db
 reports_collection = db.reports
+evidence_collection = db.report_evidence
 
-# Directory for uploaded media
+# Upload directory
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# Pydantic model for structure (optional)
-class Report(BaseModel):
-    title: str
-    description: str
-    location: Optional[str] = None
-    anonymous: bool = False
-    status: str = "Under Review"
-    media_files: List[str] = []
+# Pydantic Models
 
-# Submit a new report
-@app.post("/submit_report/")
+class Coordinates(BaseModel):
+    type: str = "Point"
+    coordinates: List[float]  # [longitude, latitude]
+
+class Location(BaseModel):
+    country: Optional[str] = None
+    city: Optional[str] = None
+    coordinates: Optional[Coordinates] = None
+
+class IncidentDetails(BaseModel):
+    date: datetime
+    location: Location
+    description: str
+    violation_types: List[str]
+
+class ReportIn(BaseModel):
+    reporter_type: Optional[str] = Field(default="witness")  # could be reporter, victim, witness etc
+    anonymous: bool = False
+    contact_info: Optional[dict] = None  # e.g. {"email": "", "phone": "", "preferred_contact": ""}
+    incident_details: IncidentDetails
+    status: Optional[str] = Field(default="new")  # e.g. new, under review, resolved etc
+
+# Helpers
+def save_uploaded_files(report_id: str, files: List[UploadFile]) -> List[str]:
+    saved_files = []
+    for file in files:
+        filename = f"{report_id}_{uuid4().hex}_{file.filename}"
+        file_path = os.path.join(UPLOAD_DIR, filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        saved_files.append(filename)
+    return saved_files
+
+# API Endpoints
+
+# 1. POST /reports/ - Submit a new incident report
+@app.post("/reports/")
 async def submit_report(
-    title: str = Form(...),
-    description: str = Form(...),
-    location: str = Form(None),
+    reporter_type: str = Form("witness"),
     anonymous: bool = Form(False),
+    email: Optional[str] = Form(None),
+    phone: Optional[str] = Form(None),
+    preferred_contact: Optional[str] = Form(None),
+    incident_date: str = Form(...),  # ISO date string
+    country: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
+    longitude: Optional[float] = Form(None),
+    latitude: Optional[float] = Form(None),
+    description: str = Form(...),
+    violation_types: List[str] = Form(...),  # multiple violation types allowed
     files: Optional[List[UploadFile]] = File(None)
 ):
-    report_id = str(uuid4())
-    media_paths = []
+    # Validate and parse date
+    try:
+        incident_date_obj = datetime.fromisoformat(incident_date)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid incident_date format, use ISO format (YYYY-MM-DD).")
 
-    if files:
-        for file in files:
-            filename = f"{report_id}_{file.filename}"
-            file_path = os.path.join(UPLOAD_DIR, filename)
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            media_paths.append(file_path)
-
-    report_data = {
-        "title": title,
-        "description": description,
-        "location": location,
-        "anonymous": anonymous,
-        "status": "Under Review",
-        "media_files": media_paths
+    # Compose location object
+    coordinates = None
+    if longitude is not None and latitude is not None:
+        coordinates = {"type": "Point", "coordinates": [longitude, latitude]}
+    location = {
+        "country": country,
+        "city": city,
+        "coordinates": coordinates
     }
 
-    result = reports_collection.insert_one(report_data)
-    return {"message": "Report submitted successfully", "id": str(result.inserted_id)}
+    report_id = str(ObjectId())
 
-# Get all reports
+    report_doc = {
+        "report_id": report_id,
+        "reporter_type": reporter_type,
+        "anonymous": anonymous,
+        "contact_info": {
+            "email": email or "",
+            "phone": phone or "",
+            "preferred_contact": preferred_contact or ""
+        },
+        "incident_details": {
+            "date": incident_date_obj,
+            "location": location,
+            "description": description,
+            "violation_types": violation_types
+        },
+        "status": "new",
+        "created_at": datetime.utcnow(),
+    }
+
+    # Insert report document
+    reports_collection.insert_one(report_doc)
+
+    # Handle media files
+    media_files = []
+    if files:
+        saved_filenames = save_uploaded_files(report_id, files)
+        for filename in saved_filenames:
+            evidence_doc = {
+                "report_id": report_id,
+                "filename": filename,
+                "uploaded_at": datetime.utcnow()
+            }
+            evidence_collection.insert_one(evidence_doc)
+            media_files.append(filename)
+
+    return {"message": "Report submitted successfully", "report_id": report_id, "media_files": media_files}
+
+# 2. GET /reports/ - List reports with optional filters
 @app.get("/reports/")
-def get_reports():
+def get_reports(
+    status: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    country: Optional[str] = Query(None)
+):
+    query = {}
+
+    if status:
+        query["status"] = status
+
+    if start_date or end_date:
+        date_filter = {}
+        if start_date:
+            try:
+                date_filter["$gte"] = datetime.fromisoformat(start_date)
+            except:
+                raise HTTPException(status_code=400, detail="Invalid start_date format")
+        if end_date:
+            try:
+                date_filter["$lte"] = datetime.fromisoformat(end_date)
+            except:
+                raise HTTPException(status_code=400, detail="Invalid end_date format")
+        query["incident_details.date"] = date_filter
+
+    if city:
+        query["incident_details.location.city"] = city
+
+    if country:
+        query["incident_details.location.country"] = country
+
     reports = []
-    for report in reports_collection.find():
-        report["id"] = str(report["_id"])
-        del report["_id"]
-        reports.append(report)
+    for doc in reports_collection.find(query).sort("incident_details.date", -1):
+        doc["id"] = doc["report_id"]
+        # Fetch associated media files
+        media = list(evidence_collection.find({"report_id": doc["report_id"]}))
+        doc["media_files"] = [item["filename"] for item in media]
+        # Convert datetime fields to ISO string for JSON serialization
+        doc["incident_details"]["date"] = doc["incident_details"]["date"].isoformat()
+        doc["created_at"] = doc["created_at"].isoformat()
+        reports.append(doc)
+
     return reports
 
-# Get a specific report
-@app.get("/report/{report_id}")
-def get_report(report_id: str):
-    report = reports_collection.find_one({"_id": ObjectId(report_id)})
-    if report:
-        report["id"] = str(report["_id"])
-        del report["_id"]
-        return report
-    return {"error": "Report not found"}
-
-# Download a media file
-@app.get("/download/{filename}")
-def download_file(filename: str):
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    return FileResponse(file_path)
-
-# Update report status
-@app.post("/update_status/")
-def update_status(report_id: str, new_status: str):
+# 3. PATCH /reports/{report_id} - Update report status
+@app.patch("/reports/{report_id}")
+def update_report_status(report_id: str = Path(...), new_status: str = Form(...)):
     result = reports_collection.update_one(
-        {"_id": ObjectId(report_id)},
+        {"report_id": report_id},
         {"$set": {"status": new_status}}
     )
     if result.matched_count == 0:
-        return {"error": "Report not found"}
+        raise HTTPException(status_code=404, detail="Report not found")
     return {"message": "Status updated successfully"}
+
+# 4. GET /reports/analytics - Count reports by violation type
+@app.get("/reports/analytics")
+def reports_analytics():
+    pipeline = [
+        {"$unwind": "$incident_details.violation_types"},
+        {"$group": {
+            "_id": "$incident_details.violation_types",
+            "count": {"$sum": 1}
+        }}
+    ]
+    result = list(reports_collection.aggregate(pipeline))
+    analytics = {item["_id"]: item["count"] for item in result}
+    return analytics
+
+# 5. GET media file by filename
+@app.get("/download/{filename}")
+def download_file(filename: str):
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path)
