@@ -3,8 +3,6 @@ import requests
 
 API_URL = "https://human-rights-monitor.onrender.com"  # ضع رابط الـAPI الخاص بك هنا
 
-st.set_page_config(page_title="Human Rights Violation Reports", layout="wide")
-st.title("📢 Human Rights Violation Reporting System")
 
 menu = st.sidebar.selectbox("Choose Action", ["📨 Submit Report", "📋 View Reports", "✅ Update Status", "📊 Reports Analytics"])
 
